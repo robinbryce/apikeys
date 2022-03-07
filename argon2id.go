@@ -50,6 +50,10 @@ type Key struct {
 	DisplayName string `firestore:"display_name" json:"display_name" protobuf:"display_name" mapstructure:"display_name"`
 }
 
+func (ak Key) Alg() Alg {
+	return ak.alg
+}
+
 type KeyOption func(*Key)
 
 func WithClientID(clientID string) KeyOption {
