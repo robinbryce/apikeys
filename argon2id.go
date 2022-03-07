@@ -12,27 +12,19 @@ import (
 )
 
 const (
-	StandardAlg   = "argon2id:3 64MB 32"
+	StandardAlg   = "argon2id 3 64MB 32"
 	saltLen       = 32
 	passwordLen   = 32
 	apiKeyNameLen = 16
 	argon2Threads = 1
 
-	// A note on why we go with a short clientid: We use the derived key as the
-	// database primary key *not* the client id. We get the password handed to
-	// us from the api key owner and we recover the derived key.  So its ok to
-	// cut some corners with the id size, it only exists to satisfy the client
-	// credentials requirements. Even if there is an id collision, the correct
-	// entry will always be found (an uniquely so) using the key recovery.
-	// PROVIDED that we always generate good SALTED random passwords.
-	defaultClientNanoIDLen = 16 // 1% in 5 million years
+	// 21 gives us similar properties to uuid.
+	defaultClientNanoIDLen = 21
 
-	apiKeyNumParts              = 5
-	apiKeyDisplayNamePrefixPart = 0
-	apiKeyIDPart                = 1
-	apiKeyAlgPart               = 2
-	apiKeySaltPart              = 3
-	apiKeyPasswordPart          = 4
+	apiKeySecretParts  = 3
+	apiKeyAlgPart      = 0 // alg.salt.password encoded together
+	apiKeySaltPart     = 1
+	apiKeyPasswordPart = 2
 )
 
 type Key struct {
@@ -46,8 +38,7 @@ type Key struct {
 	// ever.
 	DerivedKey []byte `firestore:"derived_key" json:"derived_key" protobuf:"derived_key" mapstructure:"derived_key"`
 
-	ClientID    string `firestore:"client_id" json:"client_id" protobuf:"client_id" mapstructure:"client_id"`
-	DisplayName string `firestore:"display_name" json:"display_name" protobuf:"display_name" mapstructure:"display_name"`
+	ClientID string `firestore:"client_id" json:"client_id" protobuf:"client_id" mapstructure:"client_id"`
 }
 
 func (ak Key) Alg() Alg {
@@ -59,12 +50,6 @@ type KeyOption func(*Key)
 func WithClientID(clientID string) KeyOption {
 	return func(ak *Key) {
 		ak.ClientID = clientID
-	}
-}
-
-func WithDisplayName(name string) KeyOption {
-	return func(ak *Key) {
-		ak.DisplayName = name
 	}
 }
 
@@ -104,23 +89,25 @@ func Decode(apikey string) (Key, []byte, error) {
 		return Key{}, nil, err
 	}
 
-	parts := strings.SplitN(string(b), ".", apiKeyNumParts+1)
-
-	if len(parts) != apiKeyNumParts {
-
-		return Key{}, nil, fmt.Errorf(
-			"invalid number of '.' seperated parts api key. got %d, wanted %d", len(parts), apiKeyNumParts)
+	parts := strings.SplitN(string(b), ":", 3)
+	if len(parts) > 2 {
+		return Key{}, nil, fmt.Errorf("outer structure invalid want a single ':' separating client id from secret")
 	}
 
-	ak := Key{}
+	ak := Key{ClientID: parts[0]}
+
+	parts = strings.SplitN(string(parts[1]), ".", apiKeySecretParts+1)
+
+	if len(parts) != apiKeySecretParts {
+		return Key{}, nil, fmt.Errorf(
+			"invalid number of '.' seperated secret parts in api key. got %d, wanted %d", len(parts), apiKeySecretParts)
+	}
 
 	ak.alg, err = ParseAlg(parts[apiKeyAlgPart])
 	if err != nil {
 		return Key{}, nil, err
 	}
 
-	ak.DisplayName = parts[apiKeyDisplayNamePrefixPart]
-	ak.ClientID = parts[apiKeyIDPart]
 	ak.Salt, err = base64.URLEncoding.DecodeString(parts[apiKeySaltPart])
 	if err != nil {
 		return Key{}, nil, err
@@ -175,6 +162,13 @@ func (ak *Key) generatePasword() ([]byte, error) {
 	return password, nil
 }
 
+// Generate creates a new random password and salt and encodes it for delivery
+// with the following format
+// 	base64(clientid:alg.base64(salt).base64(secret))
+// The format is chosen to be compatible with client_credentials flow where the
+// client_id:secret are delivered together in a in an "Authorization: Basic
+// base64(id:secret)" header. The token endpoint needs to be aware of what to do
+// with the secret part in order for that to work.
 func (ak *Key) Generate() (string, error) {
 	password, err := ak.generatePasword()
 	if err != nil {
@@ -183,11 +177,7 @@ func (ak *Key) Generate() (string, error) {
 	salt := base64.URLEncoding.EncodeToString(ak.Salt)
 	secret := base64.URLEncoding.EncodeToString(password)
 
-	name := ak.DisplayName
-	if len(name) > apiKeyNameLen {
-		name = name[:apiKeyNameLen]
-	}
-
-	s := strings.Join([]string{name, ak.ClientID, ak.alg.String, salt, secret}, ".")
-	return base64.URLEncoding.EncodeToString([]byte(s)), nil
+	secret = strings.Join([]string{ak.alg.String, salt, secret}, ".")
+	secret = strings.Join([]string{ak.ClientID, secret}, ":")
+	return base64.URLEncoding.EncodeToString([]byte(secret)), nil
 }

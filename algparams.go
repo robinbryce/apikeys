@@ -10,13 +10,14 @@ const (
 	space         = " "
 	algParts      = 3
 	memSuffix     = "MB"
+	memoryUnits   = 1024 // argon2 counts in KB
 	maxKeyLength  = 64
 	minKeyLength  = 16
 	maxMem        = 64
 	minMem        = 16
 	maxTime       = 5
 	minTime       = 1
-	argon2idAlgID = "argon2id:"
+	argon2idAlgID = "argon2id "
 )
 
 type ParamsArgon2ID struct {
@@ -69,6 +70,7 @@ func ParseAlg(alg string) (Alg, error) {
 	if a.Memory < minMem {
 		return Alg{}, fmt.Errorf("memory `%s' to small. min=%d", parts[1], minMem)
 	}
+	a.Memory = a.Memory * memoryUnits
 
 	u, err = strconv.ParseUint(parts[2], 10, 32)
 	if err != nil {

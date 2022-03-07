@@ -11,33 +11,21 @@ func TestNewAPIKey(t *testing.T) {
 		opts []KeyOption
 	}
 	tests := []struct {
-		name               string
-		args               args
-		want               Key
-		decodedDisplayName string
-		wantClientID       string
-		wantErr            bool
-		wantGenErr         bool
+		name         string
+		args         args
+		want         Key
+		wantClientID string
+		wantErr      bool
+		wantGenErr   bool
 	}{
 		// TODO: Add test cases.
 		{
-			"minimal good", args{alg: "argon2id:3 64MB 32"},
+			"minimal good", args{alg: "argon2id 3 64MB 32"},
 			Key{
 				alg: Alg{
-					String:         "argon2id:3 64MB 32",
-					ParamsArgon2ID: ParamsArgon2ID{Time: 3, Memory: 64, KeyLen: 32}},
-			}, "", "", false, false,
-		},
-		{
-			"long display name", args{
-				alg:  "argon2id:3 64MB 32",
-				opts: []KeyOption{WithDisplayName("0123456789123456longer than the allowed 16 chars")}},
-			Key{
-				alg: Alg{
-					String:         "argon2id:3 64MB 32",
-					ParamsArgon2ID: ParamsArgon2ID{Time: 3, Memory: 64, KeyLen: 32}},
-				DisplayName: "0123456789123456longer than the allowed 16 chars",
-			}, "0123456789123456", "", false, false,
+					String:         "argon2id 3 64MB 32",
+					ParamsArgon2ID: ParamsArgon2ID{Time: 3, Memory: 64 * memoryUnits, KeyLen: 32}},
+			}, "", false, false,
 		},
 	}
 	for _, tt := range tests {
@@ -66,11 +54,6 @@ func TestNewAPIKey(t *testing.T) {
 					t.Fatalf("unexpted error decoding apikey %s: %v", apikey, err)
 				}
 
-				if tt.decodedDisplayName != "" {
-					if tt.decodedDisplayName != ak.DisplayName {
-						t.Fatalf("decoded display name incorrect got `%s', want `%s'", ak.DisplayName, tt.decodedDisplayName)
-					}
-				}
 				if !ak.MatchPassword(password, key) {
 					t.Errorf("failed to recover password")
 				}
